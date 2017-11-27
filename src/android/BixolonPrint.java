@@ -49,6 +49,9 @@ import android.content.DialogInterface;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.util.Base64;
 import android.util.Log;
 import android.widget.Toast;
 
@@ -57,6 +60,7 @@ public class BixolonPrint extends CordovaPlugin {
     private static final String TAG = "BixolonPrint";
 
     // Action to execute
+    public static final String ACTION_PRINT_BITMAP_WITH_BASE64 = "printBitmapWithBase64";
     public static final String ACTION_PRINT_TEXT = "printText";
     public static final String ACTION_GET_STATUS = "getStatus";
     public static final String ACTION_CUT_PAPER = "cutPaper";
@@ -70,35 +74,38 @@ public class BixolonPrint extends CordovaPlugin {
     public static final String FONT_A = "A";
     public static final String FONT_B = "B";
 
-    @SuppressWarnings({"serial", "unused"})
-    private final static Map<String, String> PRODUCT_IDS = new HashMap<String, String>() {{
-        put("10", "SPP-R200");
-        put("18", "SPP-100");
-        put("22", "SRP-F310");
-        put("31", "SRP-350II");
-        put("29", "SRP-350plusII");
-        put("35", "SRP-F312");
-        put("36", "SRP-350IIK");
-        put("40", "SPP-R200II");
-        put("33", "SPP-R300");
-        put("41", "SPP-R400");
-    }};
+    @SuppressWarnings({ "serial", "unused" })
+    private final static Map<String, String> PRODUCT_IDS = new HashMap<String, String>() {
+        {
+            put("10", "SPP-R200");
+            put("18", "SPP-100");
+            put("22", "SRP-F310");
+            put("31", "SRP-350II");
+            put("29", "SRP-350plusII");
+            put("35", "SRP-F312");
+            put("36", "SRP-350IIK");
+            put("40", "SPP-R200II");
+            put("33", "SPP-R300");
+            put("41", "SPP-R400");
+        }
+    };
 
     @SuppressWarnings("serial")
-    private final static Map<String, Integer> MAX_COL = new HashMap<String, Integer>() {{
-        put("SPP-R200", 0);
-        put("SPP-100", 0);
-        put("SRP-F310", 0);
-        put("SRP-350II", 0);
-        put("SRP-350plusII", 0);
-        put("SRP-F312", 0);
-        put("SRP-350IIK", 0);
-        put("SPP-R200II", 0);
-        put("SPP-R300", 48);
-        put("SPP-R310", 48);
-        put("SPP-R400", 69);
-    }};
-
+    private final static Map<String, Integer> MAX_COL = new HashMap<String, Integer>() {
+        {
+            put("SPP-R200", 0);
+            put("SPP-100", 0);
+            put("SRP-F310", 0);
+            put("SRP-350II", 0);
+            put("SRP-350plusII", 0);
+            put("SRP-F312", 0);
+            put("SRP-350IIK", 0);
+            put("SPP-R200II", 0);
+            put("SPP-R300", 48);
+            put("SPP-R310", 48);
+            put("SPP-R400", 69);
+        }
+    };
 
     public static final int STATUS_STEP_GET_STATUS = 0;
     public static final int STATUS_STEP_GET_BATTERY_STATUS = 1;
@@ -187,6 +194,10 @@ public class BixolonPrint extends CordovaPlugin {
             JSONObject printConfig = args.optJSONObject(1);
             this.optAutoConnect = printConfig.optBoolean("autoConnect");
             this.optToastMessage = printConfig.optBoolean("toastMessage");
+        } else if (ACTION_PRINT_BITMAP_WITH_BASE64.equals(action)) {
+            JSONObject printConfig = args.optJSONObject(1);
+            this.optAutoConnect = printConfig.optBoolean("autoConnect");
+            this.optToastMessage = printConfig.optBoolean("toastMessage");
         } else if (ACTION_CUT_PAPER.equals(action)) {
             JSONObject printConfig = args.optJSONObject(0);
             this.optAutoConnect = printConfig.optBoolean("autoConnect");
@@ -198,8 +209,7 @@ public class BixolonPrint extends CordovaPlugin {
         } else {
             this.isValidAction = false;
             this.cbContext.error("Invalid Action");
-            Log.d(TAG, "Invalid action : " + action
-                    + " passed");
+            Log.d(TAG, "Invalid action : " + action + " passed");
         }
 
         if (this.isValidAction) {
@@ -235,6 +245,8 @@ public class BixolonPrint extends CordovaPlugin {
 
         if (ACTION_PRINT_TEXT.equals(this.lastActionName)) {
             this.printText();
+        } else if (ACTION_PRINT_BITMAP_WITH_BASE64.equals(this.lastActionName)) {
+            this.printBitmapWithBase64();
         } else if (ACTION_CUT_PAPER.equals(this.lastActionName)) {
             this.cutPaper();
         } else if (ACTION_GET_STATUS.equals(this.lastActionName)) {
@@ -363,7 +375,7 @@ public class BixolonPrint extends CordovaPlugin {
                 textAttribute = this.getAttribute(fontType, fontStyle);
                 textSize = this.getTextSize(width, height);
 
-                mBixolonPrinter.printText(text + "\r\n", textAlignment, textAttribute, textSize, false);
+                mBixolonPrinter.printText(text + "\r\n", textAlignment, textAttribute, textSize, true);
 
             } catch (JSONException e2) {
                 this.isValidAction = false;
@@ -379,13 +391,54 @@ public class BixolonPrint extends CordovaPlugin {
             mBixolonPrinter.lineFeed(lineFeed, false);
         }
 
-        mBixolonPrinter.cutPaper(true);
-        mBixolonPrinter.kickOutDrawer(BixolonPrinter.DRAWER_CONNECTOR_PIN5);
-
         this.actionSuccess = "print success";
-        //this.disconnect();
 
         Log.d(TAG, "BixolonPrint.printText_END");
+    }
+
+    private void printBitmapWithBase64() {
+
+        try {
+
+            JSONObject printConfig;
+            boolean formFeed;
+            int lineFeed;
+
+            printConfig = this.lastActionArgs.getJSONObject(1);
+            formFeed = printConfig.getBoolean("formFeed");
+            lineFeed = printConfig.getInt("lineFeed");
+
+            String base64EncodedData = this.lastActionArgs.getString(0);
+            Bitmap image = getDecodedBitmap(base64EncodedData); //getBitmap(imageURL);
+            mBixolonPrinter.printBitmap(image, 1, -1, 50, true);
+
+            if (formFeed) {
+                mBixolonPrinter.formFeed(false);
+            } else {
+                mBixolonPrinter.lineFeed(lineFeed, false);
+            }
+
+            this.actionSuccess = "print success";
+
+        } catch (Exception e) {
+            this.isValidAction = false;
+            this.actionError = "print error: " + e.getMessage();
+            this.disconnect();
+            return;
+        }
+    }
+
+    /**
+     * base 64로 encoding 된 image data을 받아서 bitmap을 생성하고 리턴합니다
+     *
+     * @param base64EncodedData
+     *            얻고자 하는 image url
+     * @return 생성된 bitmap
+     */
+    private Bitmap getDecodedBitmap(String base64EncodedData) {
+
+        byte[] imageAtBytes = Base64.decode(base64EncodedData.getBytes(), Base64.DEFAULT);
+        return BitmapFactory.decodeByteArray(imageAtBytes, 0, imageAtBytes.length);
     }
 
     private void cutPaper() {
@@ -431,52 +484,52 @@ public class BixolonPrint extends CordovaPlugin {
         Log.d(TAG, "BixolonPrint.getStatus_START");
 
         switch (this.statusStep) {
-            case STATUS_STEP_GET_STATUS:
-                Log.d(TAG, "BixolonPrint.getStatus: STATUS_STEP_GET_STATUS");
-                this.mConnectedDeviceStatus = new JSONObject();
-                try {
-                    this.mConnectedDeviceStatus.put("printerName", this.mConnectedDeviceName);
-                    this.mConnectedDeviceStatus.put("printerAddress", this.mConnectedDeviceAddress);
-                } catch (JSONException e1) {
-                }
-                mBixolonPrinter.getStatus();
-                return;
-            case STATUS_STEP_GET_BATTERY_STATUS:
-                Log.d(TAG, "BixolonPrint.getStatus: STATUS_STEP_GET_BATTERY_STATUS");
-                mBixolonPrinter.getBatteryStatus();
-                return;
-            case STATUS_STEP_GET_PRINTER_ID_FIRMWARE_VERSION:
-                Log.d(TAG, "BixolonPrint.getStatus: STATUS_STEP_GET_PRINTER_ID_FIRMWARE_VERSION");
-                mBixolonPrinter.getPrinterId(BixolonPrinter.PRINTER_ID_FIRMWARE_VERSION);
-                return;
-            case STATUS_STEP_GET_PRINTER_ID_MANUFACTURER:
-                Log.d(TAG, "BixolonPrint.getStatus: STATUS_STEP_GET_PRINTER_ID_MANUFACTURER");
-                mBixolonPrinter.getPrinterId(BixolonPrinter.PRINTER_ID_MANUFACTURER);
-                return;
-            case STATUS_STEP_GET_PRINTER_ID_PRINTER_MODEL:
-                Log.d(TAG, "BixolonPrint.getStatus: STATUS_STEP_GET_PRINTER_ID_PRINTER_MODEL");
-                mBixolonPrinter.getPrinterId(BixolonPrinter.PRINTER_ID_PRINTER_MODEL);
-                return;
-            case STATUS_STEP_GET_PRINTER_ID_CODE_PAGE:
-                Log.d(TAG, "BixolonPrint.getStatus: STATUS_STEP_GET_PRINTER_ID_CODE_PAGE");
-                mBixolonPrinter.getPrinterId(BixolonPrinter.PRINTER_ID_CODE_PAGE);
-                return;
-            case STATUS_STEP_GET_PRINTER_ID_MODEL_ID:
-                Log.d(TAG, "BixolonPrint.getStatus: STATUS_STEP_GET_PRINTER_ID_MODEL_ID");
-                mBixolonPrinter.getPrinterId(BixolonPrinter.PRINTER_ID_MODEL_ID);
-                return;
-            case STATUS_STEP_GET_PRINTER_ID_PRODUCT_SERIAL:
-                Log.d(TAG, "BixolonPrint.getStatus: STATUS_STEP_GET_PRINTER_ID_PRODUCT_SERIAL");
-                mBixolonPrinter.getPrinterId(BixolonPrinter.PRINTER_ID_PRODUCT_SERIAL);
-                return;
-            case STATUS_STEP_GET_PRINTER_ID_TYPE_ID:
-                Log.d(TAG, "BixolonPrint.getStatus: STATUS_STEP_GET_PRINTER_ID_TYPE_ID");
-                mBixolonPrinter.getPrinterId(BixolonPrinter.PRINTER_ID_TYPE_ID);
-                return;
+        case STATUS_STEP_GET_STATUS:
+            Log.d(TAG, "BixolonPrint.getStatus: STATUS_STEP_GET_STATUS");
+            this.mConnectedDeviceStatus = new JSONObject();
+            try {
+                this.mConnectedDeviceStatus.put("printerName", this.mConnectedDeviceName);
+                this.mConnectedDeviceStatus.put("printerAddress", this.mConnectedDeviceAddress);
+            } catch (JSONException e1) {
+            }
+            mBixolonPrinter.getStatus();
+            return;
+        case STATUS_STEP_GET_BATTERY_STATUS:
+            Log.d(TAG, "BixolonPrint.getStatus: STATUS_STEP_GET_BATTERY_STATUS");
+            mBixolonPrinter.getBatteryStatus();
+            return;
+        case STATUS_STEP_GET_PRINTER_ID_FIRMWARE_VERSION:
+            Log.d(TAG, "BixolonPrint.getStatus: STATUS_STEP_GET_PRINTER_ID_FIRMWARE_VERSION");
+            mBixolonPrinter.getPrinterId(BixolonPrinter.PRINTER_ID_FIRMWARE_VERSION);
+            return;
+        case STATUS_STEP_GET_PRINTER_ID_MANUFACTURER:
+            Log.d(TAG, "BixolonPrint.getStatus: STATUS_STEP_GET_PRINTER_ID_MANUFACTURER");
+            mBixolonPrinter.getPrinterId(BixolonPrinter.PRINTER_ID_MANUFACTURER);
+            return;
+        case STATUS_STEP_GET_PRINTER_ID_PRINTER_MODEL:
+            Log.d(TAG, "BixolonPrint.getStatus: STATUS_STEP_GET_PRINTER_ID_PRINTER_MODEL");
+            mBixolonPrinter.getPrinterId(BixolonPrinter.PRINTER_ID_PRINTER_MODEL);
+            return;
+        case STATUS_STEP_GET_PRINTER_ID_CODE_PAGE:
+            Log.d(TAG, "BixolonPrint.getStatus: STATUS_STEP_GET_PRINTER_ID_CODE_PAGE");
+            mBixolonPrinter.getPrinterId(BixolonPrinter.PRINTER_ID_CODE_PAGE);
+            return;
+        case STATUS_STEP_GET_PRINTER_ID_MODEL_ID:
+            Log.d(TAG, "BixolonPrint.getStatus: STATUS_STEP_GET_PRINTER_ID_MODEL_ID");
+            mBixolonPrinter.getPrinterId(BixolonPrinter.PRINTER_ID_MODEL_ID);
+            return;
+        case STATUS_STEP_GET_PRINTER_ID_PRODUCT_SERIAL:
+            Log.d(TAG, "BixolonPrint.getStatus: STATUS_STEP_GET_PRINTER_ID_PRODUCT_SERIAL");
+            mBixolonPrinter.getPrinterId(BixolonPrinter.PRINTER_ID_PRODUCT_SERIAL);
+            return;
+        case STATUS_STEP_GET_PRINTER_ID_TYPE_ID:
+            Log.d(TAG, "BixolonPrint.getStatus: STATUS_STEP_GET_PRINTER_ID_TYPE_ID");
+            mBixolonPrinter.getPrinterId(BixolonPrinter.PRINTER_ID_TYPE_ID);
+            return;
 
-            case STATUS_STEP_COMPLETE:
-                this.statusStep = STATUS_STEP_GET_STATUS;
-                break;
+        case STATUS_STEP_COMPLETE:
+            this.statusStep = STATUS_STEP_GET_STATUS;
+            break;
         }
 
         boolean printStatus = false;
@@ -495,18 +548,18 @@ public class BixolonPrint extends CordovaPlugin {
 
             try {
                 text = //"Status: " + this.mConnectedDeviceStatus.get("status") + "\n" +
-                        "Cover: " + this.mConnectedDeviceStatus.get("cover") + "\n" +
-                        "Paper: " + this.mConnectedDeviceStatus.get("paper") + "\n" +
-                        "Battery: " + this.mConnectedDeviceStatus.get("battery") + "\n" +
-                        "Firmware Version: " + this.mConnectedDeviceStatus.get("firmwareVersion") + "\n" +
-                        "Manufacturer: " + this.mConnectedDeviceStatus.get("manufacturer") + "\n" +
-                        "Printer Model: " + this.mConnectedDeviceStatus.get("printerModel") + "\n" +
-                        "Printer Name: " + this.mConnectedDeviceStatus.get("printerName") + "\n" +
-                        "Printer Address: " + this.mConnectedDeviceStatus.get("printerAddress") + "\n" +
-                        //"Model ID: " + this.mConnectedDeviceStatus.get("modelId") + "\n" +
-                        //"Product Serial: " + this.mConnectedDeviceStatus.get("productSerial") + "\n" +
-                        //"Type ID: " + this.mConnectedDeviceStatus.get("typeId") + "\n" +
-                        "Code Page: " + this.mConnectedDeviceStatus.get("codePage");
+                        "Cover: " + this.mConnectedDeviceStatus.get("cover") + "\n" + "Paper: "
+                                + this.mConnectedDeviceStatus.get("paper") + "\n" + "Battery: "
+                                + this.mConnectedDeviceStatus.get("battery") + "\n" + "Firmware Version: "
+                                + this.mConnectedDeviceStatus.get("firmwareVersion") + "\n" + "Manufacturer: "
+                                + this.mConnectedDeviceStatus.get("manufacturer") + "\n" + "Printer Model: "
+                                + this.mConnectedDeviceStatus.get("printerModel") + "\n" + "Printer Name: "
+                                + this.mConnectedDeviceStatus.get("printerName") + "\n" + "Printer Address: "
+                                + this.mConnectedDeviceStatus.get("printerAddress") + "\n" +
+                                //"Model ID: " + this.mConnectedDeviceStatus.get("modelId") + "\n" +
+                                //"Product Serial: " + this.mConnectedDeviceStatus.get("productSerial") + "\n" +
+                                //"Type ID: " + this.mConnectedDeviceStatus.get("typeId") + "\n" +
+                                "Code Page: " + this.mConnectedDeviceStatus.get("codePage");
             } catch (JSONException e) {
                 e.printStackTrace();
             }
@@ -525,149 +578,150 @@ public class BixolonPrint extends CordovaPlugin {
         Log.d(TAG, "BixolonPrint.onMessageRead_START: " + msg.arg1);
 
         switch (msg.arg1) {
-            case BixolonPrinter.PROCESS_GET_STATUS:
-                if (msg.arg2 == BixolonPrinter.STATUS_NORMAL) {
+        case BixolonPrinter.PROCESS_GET_STATUS:
+            if (msg.arg2 == BixolonPrinter.STATUS_NORMAL) {
+                try {
+                    //this.mConnectedDeviceStatus.put("status", "NO ERROR");
+                    this.mConnectedDeviceStatus.put("cover", "OPENED");
+                    this.mConnectedDeviceStatus.put("paper", "FILL");
+                } catch (JSONException e) {
+                }
+            } else {
+                if ((msg.arg2 & BixolonPrinter.STATUS_COVER_OPEN) == BixolonPrinter.STATUS_COVER_OPEN) {
                     try {
-                        //this.mConnectedDeviceStatus.put("status", "NO ERROR");
                         this.mConnectedDeviceStatus.put("cover", "OPENED");
-                        this.mConnectedDeviceStatus.put("paper", "FILL");
                     } catch (JSONException e) {
                     }
                 } else {
-                    if ((msg.arg2 & BixolonPrinter.STATUS_COVER_OPEN) == BixolonPrinter.STATUS_COVER_OPEN) {
-                        try {
-                            this.mConnectedDeviceStatus.put("cover", "OPENED");
-                        } catch (JSONException e) {
-                        }
-                    } else {
-                        try {
-                            this.mConnectedDeviceStatus.put("cover", "CLOSED");
-                        } catch (JSONException e) {
-                        }
-                    }
-
-                    if ((msg.arg2 & BixolonPrinter.STATUS_PAPER_NOT_PRESENT) == BixolonPrinter.STATUS_PAPER_NOT_PRESENT) {
-                        try {
-                            this.mConnectedDeviceStatus.put("paper", "EMPTY");
-                        } catch (JSONException e) {
-                        }
-                    } else {
-                        try {
-                            this.mConnectedDeviceStatus.put("paper", "FILL");
-                        } catch (JSONException e) {
-                        }
+                    try {
+                        this.mConnectedDeviceStatus.put("cover", "CLOSED");
+                    } catch (JSONException e) {
                     }
                 }
 
-                this.statusStep = STATUS_STEP_GET_BATTERY_STATUS;
-                break;
-
-            case BixolonPrinter.PROCESS_GET_BATTERY_STATUS:
-                switch (msg.arg2) {
-                    case BixolonPrinter.STATUS_BATTERY_FULL:
-                        try {
-                            this.mConnectedDeviceStatus.put("battery", "FULL");
-                        } catch (JSONException e) {
-                        }
-                        break;
-                    case BixolonPrinter.STATUS_BATTERY_HIGH:
-                        try {
-                            this.mConnectedDeviceStatus.put("battery", "HIGH");
-                        } catch (JSONException e) {
-                        }
-                        break;
-                    case BixolonPrinter.STATUS_BATTERY_MIDDLE:
-                        try {
-                            this.mConnectedDeviceStatus.put("battery", "MIDDLE");
-                        } catch (JSONException e) {
-                        }
-                        break;
-                    case BixolonPrinter.STATUS_BATTERY_LOW:
-                        try {
-                            this.mConnectedDeviceStatus.put("battery", "LOW");
-                        } catch (JSONException e) {
-                        }
-                        break;
+                if ((msg.arg2 & BixolonPrinter.STATUS_PAPER_NOT_PRESENT) == BixolonPrinter.STATUS_PAPER_NOT_PRESENT) {
+                    try {
+                        this.mConnectedDeviceStatus.put("paper", "EMPTY");
+                    } catch (JSONException e) {
+                    }
+                } else {
+                    try {
+                        this.mConnectedDeviceStatus.put("paper", "FILL");
+                    } catch (JSONException e) {
+                    }
                 }
+            }
 
-                this.statusStep = STATUS_STEP_GET_PRINTER_ID_FIRMWARE_VERSION;
-                break;
+            this.statusStep = STATUS_STEP_GET_BATTERY_STATUS;
+            break;
 
-            case BixolonPrinter.PROCESS_GET_PRINTER_ID:
-                Bundle data = msg.getData();
-                switch (this.statusStep) {
-                    case STATUS_STEP_GET_PRINTER_ID_FIRMWARE_VERSION:
-                        try {
-                            this.mConnectedDeviceStatus.put("firmwareVersion", data.getString(BixolonPrinter.KEY_STRING_PRINTER_ID));
-                        } catch (JSONException e) {
-                        }
-
-                        this.statusStep = STATUS_STEP_GET_PRINTER_ID_MANUFACTURER;
-                        break;
-
-                    case STATUS_STEP_GET_PRINTER_ID_MANUFACTURER:
-                        try {
-                            this.mConnectedDeviceStatus.put("manufacturer", data.getString(BixolonPrinter.KEY_STRING_PRINTER_ID));
-                        } catch (JSONException e) {
-                        }
-
-                        this.statusStep = STATUS_STEP_GET_PRINTER_ID_PRINTER_MODEL;
-                        break;
-
-                    case STATUS_STEP_GET_PRINTER_ID_PRINTER_MODEL:
-                        try {
-                            this.mConnectedDeviceStatus.put("printerModel", data.getString(BixolonPrinter.KEY_STRING_PRINTER_ID));
-                        } catch (JSONException e) {
-                        }
-
-                        this.statusStep = STATUS_STEP_GET_PRINTER_ID_CODE_PAGE;
-                        break;
-
-                    case STATUS_STEP_GET_PRINTER_ID_CODE_PAGE:
-                        try {
-                            this.mConnectedDeviceStatus.put("codePage", data.getString(BixolonPrinter.KEY_STRING_PRINTER_ID));
-                        } catch (JSONException e) {
-                        }
-
-                        this.statusStep = STATUS_STEP_COMPLETE;
-                        break;
-                    case STATUS_STEP_GET_PRINTER_ID_MODEL_ID:
-                        try {
-                            this.mConnectedDeviceStatus.put("modelId", data.getString(BixolonPrinter.KEY_STRING_PRINTER_ID));
-                        } catch (JSONException e) {
-                        }
-
-                        this.statusStep = STATUS_STEP_GET_PRINTER_ID_PRODUCT_SERIAL;
-                        break;
-                    case STATUS_STEP_GET_PRINTER_ID_PRODUCT_SERIAL:
-                        try {
-                            this.mConnectedDeviceStatus.put("productSerial", data.getString(BixolonPrinter.KEY_STRING_PRINTER_ID));
-                        } catch (JSONException e) {
-                        }
-
-                        this.statusStep = STATUS_STEP_GET_PRINTER_ID_TYPE_ID;
-                        break;
-                    case STATUS_STEP_GET_PRINTER_ID_TYPE_ID:
-                        try {
-                            this.mConnectedDeviceStatus.put("typeId", data.getString(BixolonPrinter.KEY_STRING_PRINTER_ID));
-                        } catch (JSONException e) {
-                        }
-
-                        this.statusStep = STATUS_STEP_COMPLETE;
-                        break;
+        case BixolonPrinter.PROCESS_GET_BATTERY_STATUS:
+            switch (msg.arg2) {
+            case BixolonPrinter.STATUS_BATTERY_FULL:
+                try {
+                    this.mConnectedDeviceStatus.put("battery", "FULL");
+                } catch (JSONException e) {
                 }
                 break;
+            case BixolonPrinter.STATUS_BATTERY_HIGH:
+                try {
+                    this.mConnectedDeviceStatus.put("battery", "HIGH");
+                } catch (JSONException e) {
+                }
+                break;
+            case BixolonPrinter.STATUS_BATTERY_MIDDLE:
+                try {
+                    this.mConnectedDeviceStatus.put("battery", "MIDDLE");
+                } catch (JSONException e) {
+                }
+                break;
+            case BixolonPrinter.STATUS_BATTERY_LOW:
+                try {
+                    this.mConnectedDeviceStatus.put("battery", "LOW");
+                } catch (JSONException e) {
+                }
+                break;
+            }
+
+            this.statusStep = STATUS_STEP_GET_PRINTER_ID_FIRMWARE_VERSION;
+            break;
+
+        case BixolonPrinter.PROCESS_GET_PRINTER_ID:
+            Bundle data = msg.getData();
+            switch (this.statusStep) {
+            case STATUS_STEP_GET_PRINTER_ID_FIRMWARE_VERSION:
+                try {
+                    this.mConnectedDeviceStatus.put("firmwareVersion",
+                            data.getString(BixolonPrinter.KEY_STRING_PRINTER_ID));
+                } catch (JSONException e) {
+                }
+
+                this.statusStep = STATUS_STEP_GET_PRINTER_ID_MANUFACTURER;
+                break;
+
+            case STATUS_STEP_GET_PRINTER_ID_MANUFACTURER:
+                try {
+                    this.mConnectedDeviceStatus.put("manufacturer",
+                            data.getString(BixolonPrinter.KEY_STRING_PRINTER_ID));
+                } catch (JSONException e) {
+                }
+
+                this.statusStep = STATUS_STEP_GET_PRINTER_ID_PRINTER_MODEL;
+                break;
+
+            case STATUS_STEP_GET_PRINTER_ID_PRINTER_MODEL:
+                try {
+                    this.mConnectedDeviceStatus.put("printerModel",
+                            data.getString(BixolonPrinter.KEY_STRING_PRINTER_ID));
+                } catch (JSONException e) {
+                }
+
+                this.statusStep = STATUS_STEP_GET_PRINTER_ID_CODE_PAGE;
+                break;
+
+            case STATUS_STEP_GET_PRINTER_ID_CODE_PAGE:
+                try {
+                    this.mConnectedDeviceStatus.put("codePage", data.getString(BixolonPrinter.KEY_STRING_PRINTER_ID));
+                } catch (JSONException e) {
+                }
+
+                this.statusStep = STATUS_STEP_COMPLETE;
+                break;
+            case STATUS_STEP_GET_PRINTER_ID_MODEL_ID:
+                try {
+                    this.mConnectedDeviceStatus.put("modelId", data.getString(BixolonPrinter.KEY_STRING_PRINTER_ID));
+                } catch (JSONException e) {
+                }
+
+                this.statusStep = STATUS_STEP_GET_PRINTER_ID_PRODUCT_SERIAL;
+                break;
+            case STATUS_STEP_GET_PRINTER_ID_PRODUCT_SERIAL:
+                try {
+                    this.mConnectedDeviceStatus.put("productSerial",
+                            data.getString(BixolonPrinter.KEY_STRING_PRINTER_ID));
+                } catch (JSONException e) {
+                }
+
+                this.statusStep = STATUS_STEP_GET_PRINTER_ID_TYPE_ID;
+                break;
+            case STATUS_STEP_GET_PRINTER_ID_TYPE_ID:
+                try {
+                    this.mConnectedDeviceStatus.put("typeId", data.getString(BixolonPrinter.KEY_STRING_PRINTER_ID));
+                } catch (JSONException e) {
+                }
+
+                this.statusStep = STATUS_STEP_COMPLETE;
+                break;
+            }
+            break;
         }
 
         Log.d(TAG, "BixolonPrint.onMessageRead_END");
         this.getStatus();
     }
-    
 
-    
-	
-	/*         METODI ACCESSORI
-	 ---------------------------------------*/
+    /*         METODI ACCESSORI
+     ---------------------------------------*/
 
     /**
      * @param fontType
@@ -742,57 +796,57 @@ public class BixolonPrint extends CordovaPlugin {
         int size = 0;
 
         switch (width) {
-            case 0:
-                size = BixolonPrinter.TEXT_SIZE_HORIZONTAL1;
-                break;
-            case 1:
-                size = BixolonPrinter.TEXT_SIZE_HORIZONTAL2;
-                break;
-            case 2:
-                size = BixolonPrinter.TEXT_SIZE_HORIZONTAL3;
-                break;
-            case 3:
-                size = BixolonPrinter.TEXT_SIZE_HORIZONTAL4;
-                break;
-            case 4:
-                size = BixolonPrinter.TEXT_SIZE_HORIZONTAL5;
-                break;
-            case 5:
-                size = BixolonPrinter.TEXT_SIZE_HORIZONTAL6;
-                break;
-            case 6:
-                size = BixolonPrinter.TEXT_SIZE_HORIZONTAL7;
-                break;
-            case 7:
-                size = BixolonPrinter.TEXT_SIZE_HORIZONTAL8;
-                break;
+        case 0:
+            size = BixolonPrinter.TEXT_SIZE_HORIZONTAL1;
+            break;
+        case 1:
+            size = BixolonPrinter.TEXT_SIZE_HORIZONTAL2;
+            break;
+        case 2:
+            size = BixolonPrinter.TEXT_SIZE_HORIZONTAL3;
+            break;
+        case 3:
+            size = BixolonPrinter.TEXT_SIZE_HORIZONTAL4;
+            break;
+        case 4:
+            size = BixolonPrinter.TEXT_SIZE_HORIZONTAL5;
+            break;
+        case 5:
+            size = BixolonPrinter.TEXT_SIZE_HORIZONTAL6;
+            break;
+        case 6:
+            size = BixolonPrinter.TEXT_SIZE_HORIZONTAL7;
+            break;
+        case 7:
+            size = BixolonPrinter.TEXT_SIZE_HORIZONTAL8;
+            break;
         }
 
         switch (height) {
-            case 0:
-                size |= BixolonPrinter.TEXT_SIZE_VERTICAL1;
-                break;
-            case 1:
-                size |= BixolonPrinter.TEXT_SIZE_VERTICAL2;
-                break;
-            case 2:
-                size |= BixolonPrinter.TEXT_SIZE_VERTICAL3;
-                break;
-            case 3:
-                size |= BixolonPrinter.TEXT_SIZE_VERTICAL4;
-                break;
-            case 4:
-                size |= BixolonPrinter.TEXT_SIZE_VERTICAL5;
-                break;
-            case 5:
-                size |= BixolonPrinter.TEXT_SIZE_VERTICAL6;
-                break;
-            case 6:
-                size |= BixolonPrinter.TEXT_SIZE_VERTICAL7;
-                break;
-            case 7:
-                size |= BixolonPrinter.TEXT_SIZE_VERTICAL8;
-                break;
+        case 0:
+            size |= BixolonPrinter.TEXT_SIZE_VERTICAL1;
+            break;
+        case 1:
+            size |= BixolonPrinter.TEXT_SIZE_VERTICAL2;
+            break;
+        case 2:
+            size |= BixolonPrinter.TEXT_SIZE_VERTICAL3;
+            break;
+        case 3:
+            size |= BixolonPrinter.TEXT_SIZE_VERTICAL4;
+            break;
+        case 4:
+            size |= BixolonPrinter.TEXT_SIZE_VERTICAL5;
+            break;
+        case 5:
+            size |= BixolonPrinter.TEXT_SIZE_VERTICAL6;
+            break;
+        case 6:
+            size |= BixolonPrinter.TEXT_SIZE_VERTICAL7;
+            break;
+        case 7:
+            size |= BixolonPrinter.TEXT_SIZE_VERTICAL8;
+            break;
         }
 
         return size;
@@ -802,87 +856,101 @@ public class BixolonPrint extends CordovaPlugin {
         @Override
         public boolean handleMessage(Message msg) {
             switch (msg.what) {
-                case BixolonPrinter.MESSAGE_BLUETOOTH_DEVICE_SET:
-                    Log.d(TAG, "perform mHandler: MESSAGE_BLUETOOTH_DEVICE_SET");
-                    if (msg.obj == null) {
-                        BixolonPrint.this.cbContext.error("Printer not found");
-                    } else {
-                        @SuppressWarnings("unchecked")
-                        final Set<BluetoothDevice> pairedDevices = (Set<BluetoothDevice>) msg.obj;
-                        final String[] itemsAddr = new String[pairedDevices.size()];
-                        final String[] itemsName = new String[pairedDevices.size()];
+            case BixolonPrinter.MESSAGE_BLUETOOTH_DEVICE_SET:
+                Log.d(TAG, "perform mHandler: MESSAGE_BLUETOOTH_DEVICE_SET");
+                if (msg.obj == null) {
+                    BixolonPrint.this.cbContext.error("Printer not found");
+                } else {
+                    @SuppressWarnings("unchecked")
+                    final Set<BluetoothDevice> pairedDevices = (Set<BluetoothDevice>) msg.obj;
+                    final String[] itemsAddr = new String[pairedDevices.size()];
+                    final String[] itemsName = new String[pairedDevices.size()];
 
-                        int index = 0;
-                        for (BluetoothDevice device : pairedDevices) {
-                            itemsAddr[index] = device.getAddress();
-                            itemsName[index] = device.getName();
-                            index++;
-                        }
+                    String printerName = "";
+
+                    try {
+                        JSONObject printConfig = BixolonPrint.this.lastActionArgs.getJSONObject(1);
+                        printerName = printConfig.getString("printerName");
+                    }catch(Exception e){
+                        Log.d(TAG, e.getMessage());
+                    }
+
+                    int index = 0;
+                    for (BluetoothDevice device : pairedDevices) {
 
                         if (BixolonPrint.this.optAutoConnect) {
-                            mConnectedDeviceAddress = itemsAddr[0];
-                            BixolonPrint.mBixolonPrinter.connect(itemsAddr[0]);
-                        } else {
-                            new AlertDialog.Builder(BixolonPrint.this.cordova.getActivity())
-                                    .setTitle("Available printers")
-                                    .setItems(itemsAddr, new DialogInterface.OnClickListener() {
-                                        public void onClick(DialogInterface dialog, int which) {
-                                            mConnectedDeviceAddress = itemsAddr[which];
-                                            BixolonPrint.mBixolonPrinter.connect(itemsAddr[which]);
-                                        }
-                                    })
-                                    .show();
+                            if(printerName.equals(device.getName())){
+                                Log.d(TAG, device.getAddress()+" "+device.getName());
+                                mConnectedDeviceAddress = device.getAddress();
+                                BixolonPrint.mBixolonPrinter.connect(device.getAddress());
+                                break;
+                            }
                         }
-
+                        itemsAddr[index] = device.getAddress();
+                        itemsName[index] = device.getName();
+                        index++;
                     }
-                    return true;
-                // END MESSAGE_BLUETOOTH_DEVICE_SET
 
-                case BixolonPrinter.MESSAGE_STATE_CHANGE:
-                    switch (msg.arg1) {
-                        case BixolonPrinter.STATE_CONNECTED:
-                            Log.d(TAG, "perform mHandler: MESSAGE_STATE_CHANGE STATE_CONNECTED");
-                            BixolonPrint.this.onConnect();
-                            break;
-
-                        case BixolonPrinter.STATE_CONNECTING:
-                            Log.d(TAG, "perform mHandler: MESSAGE_STATE_CHANGE STATE_CONNECTING");
-                            break;
-
-                        case BixolonPrinter.STATE_NONE:
-                            Log.d(TAG, "perform mHandler: MESSAGE_STATE_CHANGE STATE_NONE");
-                            // disconnect or connection error
-                            BixolonPrint.this.onDisconnect();
-                            break;
+                    if (!BixolonPrint.this.optAutoConnect) {
+                        new AlertDialog.Builder(BixolonPrint.this.cordova.getActivity()).setTitle("Available printers")
+                                .setItems(itemsAddr, new DialogInterface.OnClickListener() {
+                                    public void onClick(DialogInterface dialog, int which) {
+                                        mConnectedDeviceAddress = itemsAddr[which];
+                                        BixolonPrint.mBixolonPrinter.connect(itemsAddr[which]);
+                                    }
+                                }).show();
                     }
-                    return true;
-                // END MESSAGE_STATE_CHANGE
 
-                case BixolonPrinter.MESSAGE_DEVICE_NAME:
-                    Log.d(TAG, "perform mHandler: MESSAGE_DEVICE_NAME");
-                    mConnectedDeviceName = msg.getData().getString(BixolonPrinter.KEY_STRING_DEVICE_NAME);
-                    return true;
-                // END MESSAGE_DEVICE_NAME
+                }
+                return true;
+            // END MESSAGE_BLUETOOTH_DEVICE_SET
 
-                case BixolonPrinter.MESSAGE_TOAST:
-                    Log.d(TAG, "perform mHandler: MESSAGE_TOAST");
-                    if (BixolonPrint.this.optToastMessage) {
-                        Toast.makeText(BixolonPrint.this.cordova.getActivity(), msg.getData().getString(BixolonPrinter.KEY_STRING_TOAST), Toast.LENGTH_SHORT).show();
-                    }
-                    return true;
-                // END MESSAGE_TOAST
+            case BixolonPrinter.MESSAGE_STATE_CHANGE:
+                switch (msg.arg1) {
+                case BixolonPrinter.STATE_CONNECTED:
+                    Log.d(TAG, "perform mHandler: MESSAGE_STATE_CHANGE STATE_CONNECTED");
+                    BixolonPrint.this.onConnect();
+                    break;
 
-                case BixolonPrinter.MESSAGE_PRINT_COMPLETE:
-                    Log.d(TAG, "perform mHandler: MESSAGE_PRINT_COMPLETE");
-                    BixolonPrint.this.onPrintComplete();
-                    return true;
-                // END MESSAGE_PRINT_COMPLETE
+                case BixolonPrinter.STATE_CONNECTING:
+                    Log.d(TAG, "perform mHandler: MESSAGE_STATE_CHANGE STATE_CONNECTING");
+                    break;
 
-                case BixolonPrinter.MESSAGE_READ:
-                    Log.d(TAG, "perform mHandler: MESSAGE_READ");
-                    BixolonPrint.this.onMessageRead(msg);
-                    return true;
-                // END MESSAGE_PRINT_COMPLETE
+                case BixolonPrinter.STATE_NONE:
+                    Log.d(TAG, "perform mHandler: MESSAGE_STATE_CHANGE STATE_NONE");
+                    // disconnect or connection error
+                    BixolonPrint.this.onDisconnect();
+                    break;
+                }
+                return true;
+            // END MESSAGE_STATE_CHANGE
+
+            case BixolonPrinter.MESSAGE_DEVICE_NAME:
+                Log.d(TAG, "perform mHandler: MESSAGE_DEVICE_NAME");
+                mConnectedDeviceName = msg.getData().getString(BixolonPrinter.KEY_STRING_DEVICE_NAME);
+                return true;
+            // END MESSAGE_DEVICE_NAME
+
+            case BixolonPrinter.MESSAGE_TOAST:
+                Log.d(TAG, "perform mHandler: MESSAGE_TOAST");
+                if (BixolonPrint.this.optToastMessage) {
+                    Toast.makeText(BixolonPrint.this.cordova.getActivity(),
+                            msg.getData().getString(BixolonPrinter.KEY_STRING_TOAST), Toast.LENGTH_SHORT).show();
+                }
+                return true;
+            // END MESSAGE_TOAST
+
+            case BixolonPrinter.MESSAGE_PRINT_COMPLETE:
+                Log.d(TAG, "perform mHandler: MESSAGE_PRINT_COMPLETE");
+                BixolonPrint.this.onPrintComplete();
+                return true;
+            // END MESSAGE_PRINT_COMPLETE
+
+            case BixolonPrinter.MESSAGE_READ:
+                Log.d(TAG, "perform mHandler: MESSAGE_READ");
+                BixolonPrint.this.onMessageRead(msg);
+                return true;
+            // END MESSAGE_PRINT_COMPLETE
 
             }
             return false;
