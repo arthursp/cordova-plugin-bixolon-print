@@ -1,6 +1,8 @@
 BixolonPrint Corodva Plugin
 ==============
 
+[![NPM version](https://img.shields.io/npm/v/standard-version.svg)](https://www.npmjs.com/package/standard-version)
+
 Cross-platform BixolonPrint Plugin for Cordova / PhoneGap.
 
 ### Supported Platforms
