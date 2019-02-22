@@ -1,6 +1,6 @@
 {
   "name": "cordova-plugin-bixolon-print",
-  "version": "1.0.17",
+  "version": "1.0.18",
   "description": "Cordova Bixolon plugin",
   "license": "MIT",
   "cordova": {
